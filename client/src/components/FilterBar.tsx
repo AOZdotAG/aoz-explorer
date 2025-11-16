@@ -57,6 +57,7 @@ export default function FilterBar({ onAgentChange, onStatusChange, onMyCovenants
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all-agents">All Agents</SelectItem>
+              <SelectItem value="user-agents">User's Agents</SelectItem>
               <SelectItem value="aozAgentDealer">aozAgentDealer</SelectItem>
               <SelectItem value="other-agent">Other Agents</SelectItem>
             </SelectContent>
