@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useLocation, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useWallet } from "@/contexts/WalletContext";
@@ -42,7 +42,7 @@ function transformAgentToOath(agent: AozAgent): AozOathData {
 
 export default function Home() {
   const [, setLocation] = useLocation();
-  const { isConnected } = useWallet();
+  const { isConnected, walletAddress } = useWallet();
   const { toast } = useToast();
   const [selectedAgent, setSelectedAgent] = useState<string>("all-agents");
   const [selectedStatus, setSelectedStatus] = useState<string>("all-status");
@@ -52,7 +52,10 @@ export default function Home() {
     queryKey: ['/api/agents'],
   });
 
-  const allOaths: AozOathData[] = agents?.map(transformAgentToOath) || [];
+  const allOaths: AozOathData[] = useMemo(
+    () => agents?.map(transformAgentToOath) || [],
+    [agents]
+  );
 
   const handleCreateAgent = () => {
     if (!isConnected) {
@@ -66,24 +69,31 @@ export default function Home() {
     setLocation("/create-agent");
   };
 
-  const filteredOaths = allOaths.filter((oath) => {
-    // Filter by agent
-    if (selectedAgent !== "all-agents" && oath.agent.name !== selectedAgent) {
-      return false;
-    }
+  const filteredOaths = useMemo(() => {
+    return allOaths.filter((oath) => {
+      // Filter by agent
+      if (selectedAgent === "user-agents") {
+        // Show only agents created by the connected wallet
+        if (!walletAddress || oath.agent.walletAddress !== walletAddress) {
+          return false;
+        }
+      } else if (selectedAgent !== "all-agents" && oath.agent.name !== selectedAgent) {
+        return false;
+      }
 
-    // Filter by status
-    if (selectedStatus !== "all-status" && oath.status !== selectedStatus) {
-      return false;
-    }
+      // Filter by status
+      if (selectedStatus !== "all-status" && oath.status !== selectedStatus) {
+        return false;
+      }
 
-    // Filter by "my oaths" - for demo purposes, show only minted/pending
-    if (showMyOathsOnly && oath.status === "completed") {
-      return false;
-    }
+      // Filter by "my oaths" - for demo purposes, show only minted/pending
+      if (showMyOathsOnly && oath.status === "completed") {
+        return false;
+      }
 
-    return true;
-  });
+      return true;
+    });
+  }, [allOaths, selectedAgent, selectedStatus, showMyOathsOnly, walletAddress]);
 
   return (
     <div className="min-h-screen bg-background relative">

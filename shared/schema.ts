@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, varchar, integer, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import { SOLANA_ADDRESS_REGEX } from "./constants";
 
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -61,7 +62,9 @@ export const createAgentSchema = z.object({
     required_error: "Please select an agent type",
   }),
   description: z.string().min(10, "Description must be at least 10 characters").max(500, "Description must be less than 500 characters"),
-  settlementAddress: z.string().min(32, "Invalid Solana address").max(44, "Invalid Solana address"),
+  settlementAddress: z
+    .string()
+    .regex(SOLANA_ADDRESS_REGEX, "Invalid Solana address format. Must be a valid base58 address (32-44 characters)"),
   oathDescription: z.string().min(10, "Oath description must be at least 10 characters").max(500, "Oath description must be less than 500 characters"),
   fulfillmentDescription: z.string().min(10, "Fulfillment description must be at least 10 characters").max(500, "Fulfillment description must be less than 500 characters"),
 });
