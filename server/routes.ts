@@ -8,7 +8,7 @@ import { executeAITask } from "./ai-service";
 
 // x402 configuration
 // TEMPORARY: Disable x402 for local testing (enable when deployed with proper RPC)
-const X402_ENABLED = false; // process.env.X402_ENABLED === 'true';
+const X402_ENABLED = process.env.X402_ENABLED === 'true';
 const FACILITATOR_URL = process.env.FACILITATOR_URL || 'https://facilitator.payai.network';
 const AGENT_CREATION_PRICE = process.env.AGENT_CREATION_PRICE || '1000000'; // $1.00 USDC (1 million micro-units)
 const TREASURY_ADDRESS = process.env.TREASURY_WALLET_ADDRESS || '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU'; // Default treasury wallet
@@ -20,6 +20,15 @@ const USDC_MINT = IS_PRODUCTION
   ? 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' // Mainnet USDC
   : '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'; // Devnet USDC
 const SOLANA_NETWORK = IS_PRODUCTION ? 'solana' : 'solana-devnet';
+
+// Validate x402 configuration on startup
+if (X402_ENABLED) {
+  if (!TREASURY_ADDRESS || TREASURY_ADDRESS.length < 32) {
+    console.error('x402: Invalid TREASURY_WALLET_ADDRESS configuration');
+    throw new Error('x402 requires valid treasury wallet address');
+  }
+  console.log(`x402: Enabled on ${SOLANA_NETWORK} with price ${AGENT_CREATION_PRICE} micro-USDC`);
+}
 
 // Initialize x402 payment handler if enabled
 let x402: X402PaymentHandler | null = null;
