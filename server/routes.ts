@@ -13,14 +13,6 @@ const FACILITATOR_URL = process.env.FACILITATOR_URL || 'https://facilitator.paya
 const AGENT_CREATION_PRICE = process.env.AGENT_CREATION_PRICE || '1000000'; // $1.00 USDC (1 million micro-units)
 const TREASURY_ADDRESS = process.env.TREASURY_WALLET_ADDRESS || '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU'; // Default treasury wallet
 
-// TEMPORARY: Force mainnet for local testing
-const USE_MAINNET = true; // Set to false to switch back to devnet
-const IS_PRODUCTION = USE_MAINNET || process.env.NODE_ENV === 'production';
-const USDC_MINT = IS_PRODUCTION
-  ? 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' // Mainnet USDC
-  : '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'; // Devnet USDC
-const SOLANA_NETWORK = IS_PRODUCTION ? 'solana' : 'solana-devnet';
-
 // Validate x402 configuration on startup
 if (X402_ENABLED) {
   if (!TREASURY_ADDRESS || TREASURY_ADDRESS.length < 32) {
@@ -29,6 +21,14 @@ if (X402_ENABLED) {
   }
   console.log(`x402: Enabled on ${SOLANA_NETWORK} with price ${AGENT_CREATION_PRICE} micro-USDC`);
 }
+
+// TEMPORARY: Force mainnet for local testing
+const USE_MAINNET = true; // Set to false to switch back to devnet
+const IS_PRODUCTION = USE_MAINNET || process.env.NODE_ENV === 'production';
+const USDC_MINT = IS_PRODUCTION
+  ? 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' // Mainnet USDC
+  : '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'; // Devnet USDC
+const SOLANA_NETWORK = IS_PRODUCTION ? 'solana' : 'solana-devnet';
 
 // Initialize x402 payment handler if enabled
 let x402: X402PaymentHandler | null = null;
