@@ -12,15 +12,20 @@ const X402_ENABLED = process.env.X402_ENABLED === 'true';
 const FACILITATOR_URL = process.env.FACILITATOR_URL || 'https://facilitator.payai.network';
 const AGENT_CREATION_PRICE = process.env.AGENT_CREATION_PRICE || '1000000'; // $1.00 USDC (1 million micro-units)
 const TREASURY_ADDRESS = process.env.TREASURY_WALLET_ADDRESS || '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU'; // Default treasury wallet
+const PAYMENT_TIMEOUT_MS = parseInt(process.env.PAYMENT_TIMEOUT_MS || '60000'); // 60 seconds default
 
-// Validate x402 configuration on startup
-if (X402_ENABLED) {
-  if (!TREASURY_ADDRESS || TREASURY_ADDRESS.length < 32) {
-    console.error('x402: Invalid TREASURY_WALLET_ADDRESS configuration');
-    throw new Error('x402 requires valid treasury wallet address');
-  }
-  console.log(`x402: Enabled on ${SOLANA_NETWORK} with price ${AGENT_CREATION_PRICE} micro-USDC`);
+// Transaction monitoring storage
+interface PaymentTransaction {
+  id: string;
+  walletAddress: string;
+  amount: string;
+  status: 'pending' | 'verified' | 'settled' | 'failed';
+  timestamp: number;
+  signature?: string;
+  errorMessage?: string;
 }
+
+const paymentTransactions: Map<string, PaymentTransaction> = new Map();
 
 // TEMPORARY: Force mainnet for local testing
 const USE_MAINNET = true; // Set to false to switch back to devnet
@@ -29,6 +34,16 @@ const USDC_MINT = IS_PRODUCTION
   ? 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' // Mainnet USDC
   : '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'; // Devnet USDC
 const SOLANA_NETWORK = IS_PRODUCTION ? 'solana' : 'solana-devnet';
+
+// Validate x402 configuration on startup
+if (X402_ENABLED) {
+  if (!TREASURY_ADDRESS || TREASURY_ADDRESS.length < 32) {
+    console.error('x402: Invalid TREASURY_WALLET_ADDRESS configuration');
+    throw new Error('x402 requires valid treasury wallet address');
+  }
+  console.log(`x402: Enabled on ${SOLANA_NETWORK} with price ${AGENT_CREATION_PRICE} micro-USDC`);
+  console.log(`x402: Payment timeout set to ${PAYMENT_TIMEOUT_MS}ms`);
+}
 
 // Initialize x402 payment handler if enabled
 let x402: X402PaymentHandler | null = null;
@@ -81,8 +96,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // x402 payment handling (if enabled)
       let paymentHeader: any = null;
       let paymentRequirements: any = null;
+      let transactionId: string | null = null;
       
       if (x402 && X402_ENABLED) {
+        // Generate unique transaction ID
+        transactionId = `tx_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        
         // Extract payment header
         paymentHeader = x402.extractPayment(req.headers as any);
 
@@ -109,17 +128,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return;
         }
 
-        // Verify payment
-        const verified = await x402.verifyPayment(paymentHeader, paymentRequirements);
-        if (!verified) {
+        // Create transaction record
+        const transaction: PaymentTransaction = {
+          id: transactionId,
+          walletAddress,
+          amount: AGENT_CREATION_PRICE,
+          status: 'pending',
+          timestamp: Date.now(),
+        };
+        paymentTransactions.set(transactionId, transaction);
+        console.log(`x402: Transaction ${transactionId} created for wallet ${walletAddress}`);
+
+        // Verify payment with timeout
+        const verificationTimeout = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Payment verification timeout')), PAYMENT_TIMEOUT_MS)
+        );
+        
+        try {
+          const verified = await Promise.race([
+            x402.verifyPayment(paymentHeader, paymentRequirements),
+            verificationTimeout
+          ]);
+          
+          if (!verified) {
+            transaction.status = 'failed';
+            transaction.errorMessage = 'Payment verification failed';
+            console.log(`x402: Transaction ${transactionId} failed - verification rejected`);
+            res.status(402).json({ 
+              error: 'Invalid payment',
+              details: 'Payment verification failed. Please try again.',
+              transactionId
+            });
+            return;
+          }
+          
+          // Update transaction status
+          transaction.status = 'verified';
+          console.log(`x402: Transaction ${transactionId} verified successfully`);
+        } catch (error) {
+          transaction.status = 'failed';
+          transaction.errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          console.log(`x402: Transaction ${transactionId} failed - ${transaction.errorMessage}`);
           res.status(402).json({ 
-            error: 'Invalid payment',
-            details: 'Payment verification failed. Please try again.'
+            error: 'Payment verification error',
+            details: error instanceof Error ? error.message : 'Payment verification failed',
+            transactionId
           });
           return;
         }
-
-        // Payment verified - will settle after agent creation
       }
 
       // Create agent with mapped fields
@@ -139,11 +195,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
 
       // Settle payment if x402 is enabled and payment was made
-      if (x402 && X402_ENABLED && paymentHeader && paymentRequirements) {
+      if (x402 && X402_ENABLED && paymentHeader && paymentRequirements && transactionId) {
+        const transaction = paymentTransactions.get(transactionId);
         try {
           await x402.settlePayment(paymentHeader, paymentRequirements);
+          if (transaction) {
+            transaction.status = 'settled';
+            console.log(`x402: Transaction ${transactionId} settled successfully`);
+          }
         } catch (error) {
-          console.error('Error settling x402 payment:', error);
+          console.error(`x402: Error settling transaction ${transactionId}:`, error);
+          if (transaction) {
+            transaction.status = 'failed';
+            transaction.errorMessage = 'Settlement failed';
+          }
           // Agent is already created, so log but don't fail the request
         }
       }
@@ -152,6 +217,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error creating agent:", error);
       res.status(500).json({ error: "Failed to create agent" });
+    }
+  });
+
+  // x402 payment transaction status endpoint
+  app.get("/api/x402/transactions/:transactionId", async (req: Request, res: Response) => {
+    try {
+      if (!X402_ENABLED) {
+        res.status(404).json({ error: "x402 payments not enabled" });
+        return;
+      }
+
+      const { transactionId } = req.params;
+      const transaction = paymentTransactions.get(transactionId);
+
+      if (!transaction) {
+        res.status(404).json({ error: "Transaction not found" });
+        return;
+      }
+
+      res.json({
+        id: transaction.id,
+        status: transaction.status,
+        amount: transaction.amount,
+        timestamp: transaction.timestamp,
+        errorMessage: transaction.errorMessage || null,
+      });
+    } catch (error) {
+      console.error("Error fetching transaction:", error);
+      res.status(500).json({ error: "Failed to fetch transaction status" });
+    }
+  });
+
+  // x402 payment transactions history for a wallet
+  app.get("/api/x402/transactions", async (req: Request, res: Response) => {
+    try {
+      if (!X402_ENABLED) {
+        res.status(404).json({ error: "x402 payments not enabled" });
+        return;
+      }
+
+      const walletAddress = req.query.wallet as string;
+      if (!walletAddress) {
+        res.status(400).json({ error: "Wallet address required" });
+        return;
+      }
+
+      const transactions = Array.from(paymentTransactions.values())
+        .filter(tx => tx.walletAddress === walletAddress)
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .map(tx => ({
+          id: tx.id,
+          status: tx.status,
+          amount: tx.amount,
+          timestamp: tx.timestamp,
+          errorMessage: tx.errorMessage || null,
+        }));
+
+      res.json({ transactions });
+    } catch (error) {
+      console.error("Error fetching transactions:", error);
+      res.status(500).json({ error: "Failed to fetch transaction history" });
     }
   });
 
