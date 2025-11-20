@@ -25,6 +25,11 @@ export default function Header() {
               About
             </Button>
           </Link>
+          <Link href="/payments">
+            <Button variant="ghost" className="hover-elevate" data-testid="link-payments">
+              Payments
+            </Button>
+          </Link>
           <Link href="/privacy">
             <Button variant="ghost" className="hover-elevate" data-testid="link-privacy">
               Privacy

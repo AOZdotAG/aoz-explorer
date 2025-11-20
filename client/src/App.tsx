@@ -8,6 +8,7 @@ import Home from "@/pages/Home";
 import CreateAgent from "@/pages/CreateAgent";
 import PrivacyPolicy from "@/pages/PrivacyPolicy";
 import About from "@/pages/About";
+import TransactionHistory from "@/pages/TransactionHistory";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -15,6 +16,7 @@ function Router() {
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/create-agent" component={CreateAgent} />
+      <Route path="/payments" component={TransactionHistory} />
       <Route path="/privacy" component={PrivacyPolicy} />
       <Route path="/about" component={About} />
       <Route component={NotFound} />
