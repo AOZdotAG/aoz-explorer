@@ -27,6 +27,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Sparkles, AlertCircle } from "lucide-react";
 import Header from "@/components/Header";
+import { PaymentStatusIndicator } from "@/components/PaymentStatusIndicator";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createAgentSchema, type CreateAgent } from "@shared/schema";
@@ -38,6 +39,9 @@ export default function CreateAgent() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [showBetaNotice, setShowBetaNotice] = useState(true);
+  const [paymentStatus, setPaymentStatus] = useState<'idle' | 'wallet_confirm' | 'submitting' | 'verifying' | 'completed'>('idle');
+  const [transactionId, setTransactionId] = useState<string | undefined>();
+  const [paymentAmount] = useState<string>("1000000"); // 1 USDC in micro-units
 
   const form = useForm<CreateAgent>({
     resolver: zodResolver(createAgentSchema),
@@ -60,6 +64,7 @@ export default function CreateAgent() {
         }
 
         console.log('Creating x402 client for mainnet...');
+        setPaymentStatus('wallet_confirm');
         
         // TEMPORARY: Use mainnet for local testing
         // Using free public RPC (no API key required)
@@ -71,6 +76,7 @@ export default function CreateAgent() {
         });
         
         console.log('Sending agent creation request...');
+        setPaymentStatus('submitting');
         
         // Use x402 client - it automatically handles 402 responses and payments
         const res = await x402Client.fetch('/api/agents', {
@@ -84,6 +90,7 @@ export default function CreateAgent() {
         });
         
         console.log('Response received:', res.status, res.statusText);
+        setPaymentStatus('verifying');
         
         if (!res.ok) {
           const error = await res.json().catch(() => ({ error: res.statusText }));
@@ -91,26 +98,39 @@ export default function CreateAgent() {
           throw new Error(error.error || error.details || 'Failed to create agent');
         }
         
-        return res.json();
+        const result = await res.json();
+        
+        // Extract transaction ID if available in response
+        if (result.transactionId) {
+          setTransactionId(result.transactionId);
+        }
+        
+        setPaymentStatus('completed');
+        return result;
       } catch (error) {
         console.error('Mutation error details:', {
           message: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,
           error
         });
+        setPaymentStatus('idle');
+        setTransactionId(undefined);
         throw error;
       }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/agents'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/x402/transactions'] });
       toast({
         title: "Agent Created Successfully! 🎉",
         description: "Your agent has been registered and is now visible in the registry",
       });
       form.reset();
       setTimeout(() => {
+        setPaymentStatus('idle');
+        setTransactionId(undefined);
         setLocation("/");
-      }, 1500);
+      }, 2000);
     },
     onError: (error: any) => {
       console.error('Agent creation error:', {
@@ -124,6 +144,8 @@ export default function CreateAgent() {
         description: error?.message || "There was an error creating your agent. Please try again.",
         variant: "destructive",
       });
+      setPaymentStatus('idle');
+      setTransactionId(undefined);
     },
   });
 
