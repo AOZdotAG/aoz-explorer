@@ -1,10 +1,13 @@
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWallet } from "@/contexts/WalletContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import Header from "@/components/Header";
-import { Receipt, Clock, CheckCircle2, XCircle, RefreshCw } from "lucide-react";
+import { Receipt, Clock, CheckCircle2, XCircle, RefreshCw, Search, Filter } from "lucide-react";
 import { format } from "date-fns";
 
 interface Transaction {
@@ -19,14 +22,39 @@ interface TransactionResponse {
   transactions: Transaction[];
 }
 
+type StatusFilter = 'all' | 'pending' | 'verified' | 'settled' | 'failed';
+
 export default function TransactionHistory() {
   const { walletAddress, isConnected } = useWallet();
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [searchQuery, setSearchQuery] = useState('');
 
   const { data, isLoading, refetch } = useQuery<TransactionResponse>({
     queryKey: ['/api/x402/transactions', walletAddress],
     enabled: isConnected && !!walletAddress,
     refetchInterval: 10000, // Auto-refresh every 10 seconds
   });
+
+  // Filter and search transactions
+  const filteredTransactions = useMemo(() => {
+    if (!data?.transactions) return [];
+
+    let filtered = data.transactions;
+
+    // Apply status filter
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(tx => tx.status === statusFilter);
+    }
+
+    // Apply search query (search by transaction ID)
+    if (searchQuery.trim()) {
+      filtered = filtered.filter(tx => 
+        tx.id.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+
+    return filtered;
+  }, [data?.transactions, statusFilter, searchQuery]);
 
   const formatAmount = (microUsdc: string) => {
     const amount = parseInt(microUsdc) / 1_000_000;
@@ -114,6 +142,68 @@ export default function TransactionHistory() {
           </button>
         </div>
 
+        {/* Filters Section */}
+        <div className="mb-6 space-y-4">
+          <div className="flex flex-col sm:flex-row gap-4">
+            {/* Search Input */}
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by transaction ID..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+                data-testid="input-search-transactions"
+              />
+            </div>
+          </div>
+
+          {/* Status Filter Buttons */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <Button
+              variant={statusFilter === 'all' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setStatusFilter('all')}
+              data-testid="filter-all"
+            >
+              All
+            </Button>
+            <Button
+              variant={statusFilter === 'pending' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setStatusFilter('pending')}
+              data-testid="filter-pending"
+            >
+              Pending
+            </Button>
+            <Button
+              variant={statusFilter === 'verified' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setStatusFilter('verified')}
+              data-testid="filter-verified"
+            >
+              Verified
+            </Button>
+            <Button
+              variant={statusFilter === 'settled' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setStatusFilter('settled')}
+              data-testid="filter-settled"
+            >
+              Settled
+            </Button>
+            <Button
+              variant={statusFilter === 'failed' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setStatusFilter('failed')}
+              data-testid="filter-failed"
+            >
+              Failed
+            </Button>
+          </div>
+        </div>
+
         {isLoading ? (
           <div className="space-y-4">
             {[1, 2, 3].map((i) => (
@@ -140,9 +230,30 @@ export default function TransactionHistory() {
               </p>
             </CardContent>
           </Card>
+        ) : filteredTransactions.length === 0 ? (
+          <Card>
+            <CardContent className="p-12 text-center">
+              <Search className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-semibold mb-2">No Matching Transactions</h3>
+              <p className="text-muted-foreground">
+                Try adjusting your filters or search query
+              </p>
+              <Button
+                variant="outline"
+                className="mt-4"
+                onClick={() => {
+                  setStatusFilter('all');
+                  setSearchQuery('');
+                }}
+                data-testid="button-clear-filters"
+              >
+                Clear Filters
+              </Button>
+            </CardContent>
+          </Card>
         ) : (
           <div className="space-y-4">
-            {data.transactions.map((tx) => {
+            {filteredTransactions.map((tx) => {
               const statusConfig = getStatusConfig(tx.status);
               const StatusIcon = statusConfig.icon;
 
@@ -201,7 +312,7 @@ export default function TransactionHistory() {
 
         {data && data.transactions.length > 0 && (
           <div className="mt-6 text-center text-sm text-muted-foreground">
-            Showing {data.transactions.length} transaction{data.transactions.length !== 1 ? 's' : ''}
+            Showing {filteredTransactions.length} of {data.transactions.length} transaction{data.transactions.length !== 1 ? 's' : ''}
           </div>
         )}
       </div>
